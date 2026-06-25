@@ -1,7 +1,7 @@
 import streamlit as st
 st.image("free.jpg")
 # Tiêu đề app
-st.title("APP CHO VAY ONLINE KHÁCH HÀNG CÁ NHÂN_VÕ THỊ BÍCH LOAN")
+st.title("APP CHO VAY ONLINE KHÁCH HÀNG CÁ NHÂN_VÕ THỊ BÍCH LOAN_ĐỀ TÀI 9")
 # app.py
 import json
 import os
