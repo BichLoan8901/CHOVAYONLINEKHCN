@@ -1,359 +1,464 @@
-# vay_online_app.py
+# loan_app.py
 import json
 import os
 from datetime import datetime, timedelta
-import hashlib
-import getpass
+from typing import Dict, List, Optional
+import uuid
 
-class NguoiDung:
-    def __init__(self, ten_dang_nhap, mat_khau, ho_ten, so_dien_thoai):
-        self.ten_dang_nhap = ten_dang_nhap
-        self.mat_khau = self.ma_hoa_mat_khau(mat_khau)
-        self.ho_ten = ho_ten
-        self.so_dien_thoai = so_dien_thoai
-        self.so_du = 0
-        self.khoan_vay = []
-    
-    def ma_hoa_mat_khau(self, mat_khau):
-        return hashlib.sha256(mat_khau.encode()).hexdigest()
-    
-    def kiem_tra_mat_khau(self, mat_khau):
-        return self.mat_khau == self.ma_hoa_mat_khau(mat_khau)
-    
+class User:
+    """Lớp đại diện cho người dùng"""
+    def __init__(self, user_id: str, name: str, email: str, phone: str, credit_score: int = 700):
+        self.user_id = user_id
+        self.name = name
+        self.email = email
+        self.phone = phone
+        self.credit_score = credit_score
+        self.loans = []
+        
     def to_dict(self):
         return {
-            'ten_dang_nhap': self.ten_dang_nhap,
-            'mat_khau': self.mat_khau,
-            'ho_ten': self.ho_ten,
-            'so_dien_thoai': self.so_dien_thoai,
-            'so_du': self.so_du,
-            'khoan_vay': self.khoan_vay
+            'user_id': self.user_id,
+            'name': self.name,
+            'email': self.email,
+            'phone': self.phone,
+            'credit_score': self.credit_score
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            data['user_id'],
+            data['name'],
+            data['email'],
+            data['phone'],
+            data['credit_score']
+        )
 
-class KhoanVay:
-    def __init__(self, so_tien, lai_suat, ky_han, ngay_vay=None):
-        self.so_tien = so_tien
-        self.lai_suat = lai_suat
-        self.ky_han = ky_han  # số tháng
-        self.ngay_vay = ngay_vay if ngay_vay else datetime.now()
-        self.trang_thai = 'Dang_vay'
-        self.ngay_han_tra = self.ngay_vay + timedelta(days=ky_han*30)
-        self.so_tien_con_lai = so_tien
-    
-    def tinh_lai(self):
-        return self.so_tien * (self.lai_suat / 100) * (self.ky_han / 12)
-    
-    def tinh_tong_phai_tra(self):
-        return self.so_tien + self.tinh_lai()
-    
-    def to_dict(self):
-        return {
-            'so_tien': self.so_tien,
-            'lai_suat': self.lai_suat,
-            'ky_han': self.ky_han,
-            'ngay_vay': self.ngay_vay.strftime('%Y-%m-%d %H:%M:%S'),
-            'trang_thai': self.trang_thai,
-            'ngay_han_tra': self.ngay_han_tra.strftime('%Y-%m-%d'),
-            'so_tien_con_lai': self.so_tien_con_lai
-        }
-
-class HeThongVayOnline:
-    def __init__(self):
-        self.nguoi_dung_hien_tai = None
-        self.nguoi_dung_dict = {}
-        self.lai_suat_mac_dinh = 12  # 12%/năm
-        self.ky_han_toi_da = 36  # 36 tháng
-        self.so_tien_toi_da = 100000000  # 100 triệu
-        self.duong_dan_du_lieu = 'du_lieu_vay.json'
-        self.tai_du_lieu()
-    
-    def tai_du_lieu(self):
-        if os.path.exists(self.duong_dan_du_lieu):
-            try:
-                with open(self.duong_dan_du_lieu, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for username, user_data in data.items():
-                        user = NguoiDung(
-                            user_data['ten_dang_nhap'],
-                            user_data['mat_khau'],
-                            user_data['ho_ten'],
-                            user_data['so_dien_thoai']
-                        )
-                        user.so_du = user_data['so_du']
-                        # Khôi phục các khoản vay
-                        for loan_data in user_data.get('khoan_vay', []):
-                            ngay_vay = datetime.strptime(loan_data['ngay_vay'], '%Y-%m-%d %H:%M:%S')
-                            loan = KhoanVay(
-                                loan_data['so_tien'],
-                                loan_data['lai_suat'],
-                                loan_data['ky_han'],
-                                ngay_vay
-                            )
-                            loan.trang_thai = loan_data['trang_thai']
-                            loan.so_tien_con_lai = loan_data['so_tien_con_lai']
-                            user.khoan_vay.append(loan)
-                        self.nguoi_dung_dict[username] = user
-            except Exception as e:
-                print(f"Lỗi khi tải dữ liệu: {e}")
-    
-    def luu_du_lieu(self):
-        try:
-            data = {}
-            for username, user in self.nguoi_dung_dict.items():
-                user_dict = user.to_dict()
-                user_dict['khoan_vay'] = [loan.to_dict() for loan in user.khoan_vay]
-                data[username] = user_dict
+class Loan:
+    """Lớp đại diện cho khoản vay"""
+    def __init__(self, loan_id: str, user_id: str, amount: float, interest_rate: float, 
+                 term_months: int, purpose: str = ""):
+        self.loan_id = loan_id
+        self.user_id = user_id
+        self.amount = amount
+        self.interest_rate = interest_rate
+        self.term_months = term_months
+        self.purpose = purpose
+        self.status = 'pending'  # pending, approved, rejected, active, completed, defaulted
+        self.created_date = datetime.now()
+        self.approved_date = None
+        self.due_date = None
+        self.payments = []
+        self.total_paid = 0
+        self.remaining_balance = amount
+        
+    def approve_loan(self):
+        """Phê duyệt khoản vay"""
+        self.status = 'approved'
+        self.approved_date = datetime.now()
+        self.due_date = self.created_date + timedelta(days=self.term_months * 30)
+        
+    def make_payment(self, amount: float) -> bool:
+        """Thực hiện thanh toán"""
+        if self.status not in ['active', 'approved']:
+            return False
+        
+        if amount > self.remaining_balance:
+            return False
             
-            with open(self.duong_dan_du_lieu, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Lỗi khi lưu dữ liệu: {e}")
-    
-    def dang_ky(self):
-        print("\n" + "="*50)
-        print("ĐĂNG KÝ TÀI KHOẢN")
-        print("="*50)
+        self.total_paid += amount
+        self.remaining_balance -= amount
+        self.payments.append({
+            'date': datetime.now().isoformat(),
+            'amount': amount,
+            'balance_remaining': self.remaining_balance
+        })
         
-        ten_dang_nhap = input("Tên đăng nhập: ").strip()
-        if ten_dang_nhap in self.nguoi_dung_dict:
-            print("Tên đăng nhập đã tồn tại!")
-            return False
-        
-        mat_khau = getpass.getpass("Mật khẩu: ")
-        xac_nhan_mat_khau = getpass.getpass("Xác nhận mật khẩu: ")
-        
-        if mat_khau != xac_nhan_mat_khau:
-            print("Mật khẩu không khớp!")
-            return False
-        
-        ho_ten = input("Họ và tên: ").strip()
-        so_dien_thoai = input("Số điện thoại: ").strip()
-        
-        user = NguoiDung(ten_dang_nhap, mat_khau, ho_ten, so_dien_thoai)
-        self.nguoi_dung_dict[ten_dang_nhap] = user
-        self.luu_du_lieu()
-        
-        print("\n✅ Đăng ký thành công!")
+        if self.remaining_balance <= 0:
+            self.status = 'completed'
+            self.remaining_balance = 0
+            
         return True
     
-    def dang_nhap(self):
-        print("\n" + "="*50)
-        print("ĐĂNG NHẬP")
-        print("="*50)
+    def calculate_monthly_payment(self) -> float:
+        """Tính số tiền phải trả hàng tháng"""
+        if self.interest_rate == 0:
+            return self.amount / self.term_months
         
-        ten_dang_nhap = input("Tên đăng nhập: ").strip()
-        mat_khau = getpass.getpass("Mật khẩu: ")
-        
-        if ten_dang_nhap in self.nguoi_dung_dict:
-            user = self.nguoi_dung_dict[ten_dang_nhap]
-            if user.kiem_tra_mat_khau(mat_khau):
-                self.nguoi_dung_hien_tai = user
-                print(f"\n✅ Chào mừng, {user.ho_ten}!")
-                return True
-        print("❌ Tên đăng nhập hoặc mật khẩu không đúng!")
-        return False
+        monthly_rate = self.interest_rate / 100 / 12
+        if self.term_months == 0:
+            return self.amount
+            
+        factor = (1 + monthly_rate) ** self.term_months
+        return self.amount * monthly_rate * factor / (factor - 1)
     
-    def dang_xuat(self):
-        self.nguoi_dung_hien_tai = None
-        print("Đã đăng xuất thành công!")
+    def get_remaining_payments(self) -> int:
+        """Số tháng còn lại cần thanh toán"""
+        if self.status in ['completed', 'defaulted']:
+            return 0
+        if self.due_date:
+            days_remaining = (self.due_date - datetime.now()).days
+            return max(0, days_remaining // 30)
+        return self.term_months
     
-    def hien_thi_thong_tin(self):
-        user = self.nguoi_dung_hien_tai
-        print("\n" + "="*50)
-        print("THÔNG TIN CÁ NHÂN")
-        print("="*50)
-        print(f"Họ tên: {user.ho_ten}")
-        print(f"Số điện thoại: {user.so_dien_thoai}")
-        print(f"Số dư: {user.so_du:,.0f} VND")
-        print("-"*50)
+    def to_dict(self):
+        return {
+            'loan_id': self.loan_id,
+            'user_id': self.user_id,
+            'amount': self.amount,
+            'interest_rate': self.interest_rate,
+            'term_months': self.term_months,
+            'purpose': self.purpose,
+            'status': self.status,
+            'created_date': self.created_date.isoformat(),
+            'approved_date': self.approved_date.isoformat() if self.approved_date else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'total_paid': self.total_paid,
+            'remaining_balance': self.remaining_balance,
+            'payments': self.payments
+        }
     
-    def tao_khoan_vay(self):
-        user = self.nguoi_dung_hien_tai
-        
-        print("\n" + "="*50)
-        print("TẠO KHOẢN VAY")
-        print("="*50)
-        
-        try:
-            so_tien = float(input(f"Số tiền muốn vay (tối đa {self.so_tien_toi_da:,.0f} VND): "))
-            if so_tien <= 0:
-                print("❌ Số tiền phải lớn hơn 0!")
-                return
-            if so_tien > self.so_tien_toi_da:
-                print(f"❌ Số tiền vượt quá hạn mức tối đa ({self.so_tien_toi_da:,.0f} VND)!")
-                return
-            
-            ky_han = int(input(f"Kỳ hạn vay (tháng, tối đa {self.ky_han_toi_da} tháng): "))
-            if ky_han <= 0 or ky_han > self.ky_han_toi_da:
-                print(f"❌ Kỳ hạn không hợp lệ! Vui lòng nhập từ 1 đến {self.ky_han_toi_da} tháng")
-                return
-            
-            print(f"\nLãi suất mặc định: {self.lai_suat_mac_dinh}%/năm")
-            dieu_chinh_lai = input("Bạn có muốn điều chỉnh lãi suất? (y/n): ").lower()
-            
-            if dieu_chinh_lai == 'y':
-                lai_suat = float(input("Nhập lãi suất mong muốn (%/năm): "))
-                if lai_suat < 0:
-                    print("❌ Lãi suất không được âm!")
-                    return
-            else:
-                lai_suat = self.lai_suat_mac_dinh
-            
-            # Tạo khoản vay
-            khoan_vay = KhoanVay(so_tien, lai_suat, ky_han)
-            
-            # Xác nhận thông tin
-            print("\n" + "-"*50)
-            print("THÔNG TIN KHOẢN VAY:")
-            print(f"Số tiền: {so_tien:,.0f} VND")
-            print(f"Lãi suất: {lai_suat}%/năm")
-            print(f"Kỳ hạn: {ky_han} tháng")
-            print(f"Ngày vay: {khoan_vay.ngay_vay.strftime('%d/%m/%Y')}")
-            print(f"Ngày đến hạn: {khoan_vay.ngay_han_tra.strftime('%d/%m/%Y')}")
-            print(f"Tiền lãi: {khoan_vay.tinh_lai():,.0f} VND")
-            print(f"Tổng phải trả: {khoan_vay.tinh_tong_phai_tra():,.0f} VND")
-            print("-"*50)
-            
-            xac_nhan = input("\nXác nhận vay? (y/n): ").lower()
-            if xac_nhan == 'y':
-                user.khoan_vay.append(khoan_vay)
-                user.so_du += so_tien
-                self.luu_du_lieu()
-                print("\n✅ Vay thành công! Tiền đã được chuyển vào tài khoản.")
-                print(f"Số dư hiện tại: {user.so_du:,.0f} VND")
-            else:
-                print("Đã hủy giao dịch vay.")
-                
-        except ValueError:
-            print("❌ Vui lòng nhập số hợp lệ!")
-    
-    def tra_no(self):
-        user = self.nguoi_dung_hien_tai
-        
-        # Lọc các khoản vay đang còn nợ
-        khoan_vay_dang_no = [v for v in user.khoan_vay if v.trang_thai == 'Dang_vay']
-        
-        if not khoan_vay_dang_no:
-            print("\n❌ Bạn không có khoản vay nào đang cần trả!")
-            return
-        
-        print("\n" + "="*50)
-        print("DANH SÁCH KHOẢN VAY ĐANG NỢ")
-        print("="*50)
-        
-        for i, vay in enumerate(khoan_vay_dang_no, 1):
-            tong_phai_tra = vay.tinh_tong_phai_tra()
-            print(f"{i}. Số tiền: {vay.so_tien:,.0f} VND")
-            print(f"   Lãi suất: {vay.lai_suat}%/năm")
-            print(f"   Kỳ hạn: {vay.ky_han} tháng")
-            print(f"   Ngày đến hạn: {vay.ngay_han_tra.strftime('%d/%m/%Y')}")
-            print(f"   Tổng phải trả: {tong_phai_tra:,.0f} VND")
-            print("-"*40)
-        
-        try:
-            lua_chon = int(input("\nChọn khoản vay cần trả (nhập số thứ tự): "))
-            if lua_chon < 1 or lua_chon > len(khoan_vay_dang_no):
-                print("❌ Lựa chọn không hợp lệ!")
-                return
-            
-            khoan_vay_chon = khoan_vay_dang_no[lua_chon - 1]
-            tong_phai_tra = khoan_vay_chon.tinh_tong_phai_tra()
-            
-            print(f"\nSố tiền phải trả: {tong_phai_tra:,.0f} VND")
-            print(f"Số dư hiện tại: {user.so_du:,.0f} VND")
-            
-            if user.so_du < tong_phai_tra:
-                print(f"❌ Số dư không đủ! Cần thêm {tong_phai_tra - user.so_du:,.0f} VND")
-                return
-            
-            xac_nhan = input("\nXác nhận thanh toán? (y/n): ").lower()
-            if xac_nhan == 'y':
-                user.so_du -= tong_phai_tra
-                khoan_vay_chon.trang_thai = 'Da_tra'
-                khoan_vay_chon.so_tien_con_lai = 0
-                self.luu_du_lieu()
-                print("\n✅ Thanh toán thành công!")
-                print(f"Số dư còn lại: {user.so_du:,.0f} VND")
-            else:
-                print("Đã hủy thanh toán.")
-                
-        except ValueError:
-            print("❌ Vui lòng nhập số hợp lệ!")
-    
-    def xem_lich_su_vay(self):
-        user = self.nguoi_dung_hien_tai
-        
-        if not user.khoan_vay:
-            print("\n❌ Bạn chưa có khoản vay nào!")
-            return
-        
-        print("\n" + "="*50)
-        print("LỊCH SỬ VAY")
-        print("="*50)
-        
-        for i, vay in enumerate(user.khoan_vay, 1):
-            trang_thai_str = "🟢 Đang vay" if vay.trang_thai == 'Dang_vay' else "✅ Đã trả"
-            print(f"{i}. Số tiền: {vay.so_tien:,.0f} VND")
-            print(f"   Trạng thái: {trang_thai_str}")
-            print(f"   Ngày vay: {vay.ngay_vay.strftime('%d/%m/%Y')}")
-            print(f"   Ngày đến hạn: {vay.ngay_han_tra.strftime('%d/%m/%Y')}")
-            print(f"   Lãi suất: {vay.lai_suat}%/năm")
-            print(f"   Số tiền còn lại: {vay.so_tien_con_lai:,.0f} VND")
-            print("-"*40)
-    
-    def menu_chinh(self):
-        while True:
-            print("\n" + "="*50)
-            print("🏦 HỆ THỐNG VAY ONLINE")
-            print("="*50)
-            print("1. Đăng nhập")
-            print("2. Đăng ký")
-            print("3. Thoát")
-            print("="*50)
-            
-            lua_chon = input("Chọn chức năng: ")
-            
-            if lua_chon == '1':
-                if self.dang_nhap():
-                    self.menu_nguoi_dung()
-            elif lua_chon == '2':
-                self.dang_ky()
-            elif lua_chon == '3':
-                self.luu_du_lieu()
-                print("Cảm ơn bạn đã sử dụng hệ thống!")
-                break
-            else:
-                print("❌ Lựa chọn không hợp lệ!")
-    
-    def menu_nguoi_dung(self):
-        while True:
-            print("\n" + "="*50)
-            print(f"👤 {self.nguoi_dung_hien_tai.ho_ten} - MENU")
-            print("="*50)
-            print("1. Xem thông tin cá nhân")
-            print("2. Vay tiền")
-            print("3. Trả nợ")
-            print("4. Xem lịch sử vay")
-            print("5. Đăng xuất")
-            print("="*50)
-            
-            lua_chon = input("Chọn chức năng: ")
-            
-            if lua_chon == '1':
-                self.hien_thi_thong_tin()
-            elif lua_chon == '2':
-                self.tao_khoan_vay()
-            elif lua_chon == '3':
-                self.tra_no()
-            elif lua_chon == '4':
-                self.xem_lich_su_vay()
-            elif lua_chon == '5':
-                self.dang_xuat()
-                break
-            else:
-                print("❌ Lựa chọn không hợp lệ!")
+    @classmethod
+    def from_dict(cls, data):
+        loan = cls(
+            data['loan_id'],
+            data['user_id'],
+            data['amount'],
+            data['interest_rate'],
+            data['term_months'],
+            data.get('purpose', '')
+        )
+        loan.status = data['status']
+        loan.created_date = datetime.fromisoformat(data['created_date'])
+        loan.approved_date = datetime.fromisoformat(data['approved_date']) if data['approved_date'] else None
+        loan.due_date = datetime.fromisoformat(data['due_date']) if data['due_date'] else None
+        loan.total_paid = data['total_paid']
+        loan.remaining_balance = data['remaining_balance']
+        loan.payments = data['payments']
+        return loan
 
-# Chạy ứng dụng
+class LoanApp:
+    """Ứng dụng quản lý cho vay"""
+    def __init__(self, data_file='loan_data.json'):
+        self.data_file = data_file
+        self.users: Dict[str, User] = {}
+        self.loans: Dict[str, Loan] = {}
+        self.current_user: Optional[User] = None
+        self.load_data()
+        
+    def save_data(self):
+        """Lưu dữ liệu vào file"""
+        data = {
+            'users': {uid: user.to_dict() for uid, user in self.users.items()},
+            'loans': {lid: loan.to_dict() for lid, loan in self.loans.items()}
+        }
+        with open(self.data_file, 'w') as f:
+            json.dump(data, f, indent=2)
+            
+    def load_data(self):
+        """Tải dữ liệu từ file"""
+        if not os.path.exists(self.data_file):
+            return
+            
+        try:
+            with open(self.data_file, 'r') as f:
+                data = json.load(f)
+                
+            self.users = {uid: User.from_dict(user_data) for uid, user_data in data.get('users', {}).items()}
+            self.loans = {lid: Loan.from_dict(loan_data) for lid, loan_data in data.get('loans', {}).items()}
+            
+        except (json.JSONDecodeError, KeyError):
+            print("Lỗi khi tải dữ liệu. Bắt đầu với dữ liệu trống.")
+            
+    def register_user(self, name: str, email: str, phone: str) -> User:
+        """Đăng ký người dùng mới"""
+        user_id = str(uuid.uuid4())[:8]
+        user = User(user_id, name, email, phone)
+        self.users[user_id] = user
+        self.save_data()
+        return user
+    
+    def login(self, user_id: str) -> Optional[User]:
+        """Đăng nhập người dùng"""
+        if user_id in self.users:
+            self.current_user = self.users[user_id]
+            return self.current_user
+        return None
+        
+    def apply_loan(self, user_id: str, amount: float, interest_rate: float, 
+                   term_months: int, purpose: str = "") -> Optional[Loan]:
+        """Đăng ký khoản vay mới"""
+        if user_id not in self.users:
+            print("Người dùng không tồn tại!")
+            return None
+            
+        user = self.users[user_id]
+        
+        # Kiểm tra credit score
+        if user.credit_score < 600:
+            print(f"Điểm tín dụng {user.credit_score} quá thấp. Không thể vay!")
+            return None
+            
+        # Kiểm tra số nợ hiện tại
+        active_loans = [loan for loan in self.loans.values() 
+                       if loan.user_id == user_id and loan.status in ['active', 'approved']]
+        total_debt = sum(loan.remaining_balance for loan in active_loans)
+        
+        if total_debt > 50000000:  # Giới hạn nợ tối đa 50 triệu
+            print("Số nợ hiện tại vượt quá giới hạn cho phép!")
+            return None
+            
+        loan_id = str(uuid.uuid4())[:8]
+        loan = Loan(loan_id, user_id, amount, interest_rate, term_months, purpose)
+        self.loans[loan_id] = loan
+        self.save_data()
+        print(f"Đã tạo đơn vay thành công! Mã khoản vay: {loan_id}")
+        return loan
+    
+    def approve_loan(self, loan_id: str):
+        """Phê duyệt khoản vay"""
+        if loan_id not in self.loans:
+            print("Không tìm thấy khoản vay!")
+            return
+            
+        loan = self.loans[loan_id]
+        if loan.status != 'pending':
+            print("Khoản vay này đã được xử lý!")
+            return
+            
+        # Kiểm tra credit score của người vay
+        user = self.users.get(loan.user_id)
+        if user and user.credit_score < 600:
+            print("Điểm tín dụng thấp. Không thể phê duyệt!")
+            loan.status = 'rejected'
+            self.save_data()
+            return
+            
+        loan.approve_loan()
+        loan.status = 'active'
+        self.save_data()
+        print(f"Khoản vay {loan_id} đã được phê duyệt!")
+        print(f"Số tiền phải trả hàng tháng: {loan.calculate_monthly_payment():,.0f} VND")
+        
+    def make_payment(self, loan_id: str, amount: float) -> bool:
+        """Thanh toán khoản vay"""
+        if loan_id not in self.loans:
+            print("Không tìm thấy khoản vay!")
+            return False
+            
+        loan = self.loans[loan_id]
+        result = loan.make_payment(amount)
+        if result:
+            self.save_data()
+            print(f"Đã thanh toán {amount:,.0f} VND. Còn nợ: {loan.remaining_balance:,.0f} VND")
+        else:
+            print("Thanh toán thất bại!")
+        return result
+        
+    def view_loans(self, user_id: str = None):
+        """Xem danh sách khoản vay"""
+        if user_id:
+            loans = [loan for loan in self.loans.values() if loan.user_id == user_id]
+        else:
+            loans = list(self.loans.values())
+            
+        if not loans:
+            print("Không có khoản vay nào!")
+            return
+            
+        print("\n" + "="*80)
+        print(f"{'Mã vay':<10} {'Người vay':<15} {'Số tiền':<15} {'Lãi suất':<10} {'Trạng thái':<12} {'Còn nợ':<15}")
+        print("-"*80)
+        for loan in loans:
+            user = self.users.get(loan.user_id)
+            user_name = user.name if user else "Không xác định"
+            status_vi = {
+                'pending': 'Chờ duyệt',
+                'approved': 'Đã duyệt',
+                'rejected': 'Từ chối',
+                'active': 'Đang vay',
+                'completed': 'Đã trả',
+                'defaulted': 'Quá hạn'
+            }.get(loan.status, loan.status)
+            
+            print(f"{loan.loan_id:<10} {user_name:<15} {loan.amount:>13,} VND {loan.interest_rate:>9.1f}% "
+                  f"{status_vi:<12} {loan.remaining_balance:>13,} VND")
+        print("="*80)
+        
+    def get_loan_details(self, loan_id: str):
+        """Xem chi tiết khoản vay"""
+        if loan_id not in self.loans:
+            print("Không tìm thấy khoản vay!")
+            return
+            
+        loan = self.loans[loan_id]
+        user = self.users.get(loan.user_id)
+        
+        print("\n" + "="*60)
+        print(f"CHI TIẾT KHOẢN VAY: {loan_id}")
+        print("="*60)
+        print(f"Người vay: {user.name if user else 'Không xác định'}")
+        print(f"Số tiền vay: {loan.amount:,.0f} VND")
+        print(f"Lãi suất: {loan.interest_rate}%/năm")
+        print(f"Thời hạn: {loan.term_months} tháng")
+        print(f"Mục đích: {loan.purpose if loan.purpose else 'Không có'}")
+        print(f"Trạng thái: {loan.status}")
+        print(f"Ngày tạo: {loan.created_date.strftime('%d/%m/%Y %H:%M')}")
+        if loan.approved_date:
+            print(f"Ngày duyệt: {loan.approved_date.strftime('%d/%m/%Y %H:%M')}")
+        if loan.due_date:
+            print(f"Hạn thanh toán: {loan.due_date.strftime('%d/%m/%Y')}")
+        print(f"Số tiền đã trả: {loan.total_paid:,.0f} VND")
+        print(f"Số tiền còn nợ: {loan.remaining_balance:,.0f} VND")
+        print(f"Tháng còn lại: {loan.get_remaining_payments()} tháng")
+        print(f"Số tiền phải trả mỗi tháng: {loan.calculate_monthly_payment():,.0f} VND")
+        
+        if loan.payments:
+            print("\nLỊCH SỬ THANH TOÁN:")
+            print("-"*40)
+            for payment in loan.payments:
+                date = datetime.fromisoformat(payment['date'])
+                print(f"{date.strftime('%d/%m/%Y')}: {payment['amount']:,.0f} VND - "
+                      f"Còn nợ: {payment['balance_remaining']:,.0f} VND")
+        print("="*60)
+        
+    def view_user_info(self):
+        """Xem thông tin người dùng hiện tại"""
+        if not self.current_user:
+            print("Chưa đăng nhập!")
+            return
+            
+        user = self.current_user
+        print("\n" + "="*50)
+        print("THÔNG TIN NGƯỜI DÙNG")
+        print("="*50)
+        print(f"Mã số: {user.user_id}")
+        print(f"Tên: {user.name}")
+        print(f"Email: {user.email}")
+        print(f"SĐT: {user.phone}")
+        print(f"Điểm tín dụng: {user.credit_score}")
+        
+        # Tổng hợp khoản vay
+        user_loans = [loan for loan in self.loans.values() if loan.user_id == user.user_id]
+        total_loans = len(user_loans)
+        active_loans = len([l for l in user_loans if l.status == 'active'])
+        total_debt = sum(l.remaining_balance for l in user_loans if l.status in ['active', 'approved'])
+        completed_loans = len([l for l in user_loans if l.status == 'completed'])
+        
+        print(f"\nTổng số khoản vay: {total_loans}")
+        print(f"Đang vay: {active_loans}")
+        print(f"Đã trả: {completed_loans}")
+        print(f"Tổng nợ: {total_debt:,.0f} VND")
+        print("="*50)
+
+def main():
+    app = LoanApp()
+    
+    # Tạo dữ liệu mẫu
+    if not app.users:
+        demo_user = app.register_user("Nguyễn Văn A", "a@email.com", "0901234567")
+        demo_user.credit_score = 750
+        app.save_data()
+    
+    while True:
+        print("\n" + "="*50)
+        print("ỨNG DỤNG VAY ONLINE CÁ NHÂN")
+        print("="*50)
+        print("1. Đăng nhập")
+        print("2. Đăng ký tài khoản mới")
+        print("3. Xem danh sách khoản vay")
+        print("4. Đăng ký vay")
+        print("5. Phê duyệt khoản vay (Admin)")
+        print("6. Thanh toán khoản vay")
+        print("7. Xem chi tiết khoản vay")
+        print("8. Xem thông tin cá nhân")
+        print("9. Thoát")
+        print("="*50)
+        
+        if app.current_user:
+            print(f"Đang đăng nhập: {app.current_user.name}")
+        else:
+            print("Chưa đăng nhập")
+        
+        choice = input("Chọn chức năng (1-9): ").strip()
+        
+        if choice == '1':
+            if app.current_user:
+                print("Bạn đã đăng nhập!")
+                continue
+            user_id = input("Nhập mã người dùng: ").strip()
+            user = app.login(user_id)
+            if user:
+                print(f"Đăng nhập thành công! Xin chào {user.name}")
+            else:
+                print("Đăng nhập thất bại! Mã người dùng không tồn tại.")
+                
+        elif choice == '2':
+            name = input("Họ và tên: ").strip()
+            email = input("Email: ").strip()
+            phone = input("Số điện thoại: ").strip()
+            if name and email and phone:
+                user = app.register_user(name, email, phone)
+                print(f"Đăng ký thành công! Mã người dùng của bạn: {user.user_id}")
+                # Tự động đăng nhập
+                app.current_user = user
+                print(f"Chào mừng {user.name}!")
+            else:
+                print("Vui lòng điền đầy đủ thông tin!")
+                
+        elif choice == '3':
+            if app.current_user:
+                app.view_loans(app.current_user.user_id)
+            else:
+                print("Vui lòng đăng nhập để xem khoản vay của bạn!")
+                if input("Xem tất cả khoản vay? (y/n): ").lower() == 'y':
+                    app.view_loans()
+                    
+        elif choice == '4':
+            if not app.current_user:
+                print("Vui lòng đăng nhập trước!")
+                continue
+                
+            try:
+                amount = float(input("Số tiền vay (VND): ").strip())
+                interest = float(input("Lãi suất (%/năm): ").strip())
+                term = int(input("Thời hạn (tháng): ").strip())
+                purpose = input("Mục đích vay (không bắt buộc): ").strip()
+                
+                app.apply_loan(app.current_user.user_id, amount, interest, term, purpose)
+            except ValueError:
+                print("Dữ liệu không hợp lệ! Vui lòng nhập số.")
+                
+        elif choice == '5':
+            # Admin chỉ có thể phê duyệt nếu là admin (trong demo này cho phép tất cả)
+            loan_id = input("Nhập mã khoản vay cần phê duyệt: ").strip()
+            app.approve_loan(loan_id)
+            
+        elif choice == '6':
+            if not app.current_user:
+                print("Vui lòng đăng nhập trước!")
+                continue
+                
+            loan_id = input("Nhập mã khoản vay: ").strip()
+            try:
+                amount = float(input("Số tiền thanh toán (VND): ").strip())
+                app.make_payment(loan_id, amount)
+            except ValueError:
+                print("Số tiền không hợp lệ!")
+                
+        elif choice == '7':
+            loan_id = input("Nhập mã khoản vay: ").strip()
+            app.get_loan_details(loan_id)
+            
+        elif choice == '8':
+            app.view_user_info()
+            
+        elif choice == '9':
+            print("Cảm ơn bạn đã sử dụng ứng dụng!")
+            break
+            
+        else:
+            print("Lựa chọn không hợp lệ. Vui lòng chọn từ 1-9.")
+
 if __name__ == "__main__":
-    he_thong = HeThongVayOnline()
-    he_thong.menu_chinh()
+    main()
