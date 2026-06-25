@@ -1,3 +1,7 @@
+import streamlit as st
+st.image("logo.jpg")
+# Tiêu đề app
+st.title("APP CHO VAY ONLINE KHÁCH HÀNG CÁ NHÂN_VÕ THỊ BÍCH LOAN")
 # loan_app.py
 import json
 import os
